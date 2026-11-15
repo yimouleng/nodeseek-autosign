@@ -250,7 +250,8 @@ def _camoufox_page(headless, user_data_dir, proxy_cfg, locale, humanize):
         locale=[locale, "zh"],
         # 不设 os，让 Camoufox 按真实 Linux 环境生成自洽指纹；
         # 设死 windows 反而会和真实 UA/字体对不上，产生指纹泄漏
-        geoip=False,
+        # 使用代理时同步时区和地理位置，避免出口 IP 与浏览器指纹不一致。
+        geoip=bool(proxy_cfg),
         # 关键：禁用 COOP，否则跨域 iframe 里的 Turnstile 复选框点不到
         disable_coop=True,
         # 明确知道禁用 COOP 可能被高级 WAF 探测，这是为了过 Turnstile 的必要取舍
