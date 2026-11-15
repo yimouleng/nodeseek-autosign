@@ -149,6 +149,23 @@ fi
 # 先写一次「运行中」心跳：万一 python 卡死/被 kill，也能看出它确实起过
 printf 'last_run=%s\nstatus=running\n' "$(ts)" > "$HEARTBEAT"
 
+# 首次设备验证需要交互。没有任何已保存的 NS Cookie 时，定时任务反复
+# 尝试浏览器登录只会触发风控；手动完成首次登录后自动恢复正常执行。
+if [ "${1:-}" != "--now" ] && ! NS_APP_DIR="$APP_DIR" "$PY" -c '
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+load_dotenv(Path(os.environ["NS_APP_DIR"]) / ".env")
+cookie_file = Path(os.environ["NS_APP_DIR"]) / "cookie" / "NODESEEK_COOKIE_1.txt"
+has_cookie = bool(os.getenv("NS_COOKIE", "").strip()) or (cookie_file.is_file() and bool(cookie_file.read_text().strip()))
+raise SystemExit(0 if has_cookie else 1)
+'; then
+  echo "[$(ts)] 首次设备登录尚未完成，跳过浏览器登录；请手动完成验证" >> "$LOG_FILE"
+  printf 'last_run=%s\nstatus=needs_initial_login\n' "$(ts)" > "$HEARTBEAT"
+  echo "================ [$(ts)] 结束（等待首次登录） ================" >> "$LOG_FILE"
+  exit 1
+fi
+
 # ---------------------------------------------------------------- 真跑
 "$PY" multi_site_sign_cookie_only.py >> "$LOG_FILE" 2>&1
 rc=$?
