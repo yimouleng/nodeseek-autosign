@@ -256,6 +256,22 @@ def _camoufox_page(headless, user_data_dir, proxy_cfg, locale, humanize):
         # 明确知道禁用 COOP 可能被高级 WAF 探测，这是为了过 Turnstile 的必要取舍
         i_know_what_im_doing=True,
     )
+    if sys.platform.startswith("linux"):
+        try:
+            from camoufox.multiversion import get_active_path
+
+            browser_path = get_active_path()
+            if browser_path and (browser_path / "libnss3.so").exists():
+                env = os.environ.copy()
+                current = env.get("LD_LIBRARY_PATH", "")
+                env["LD_LIBRARY_PATH"] = os.pathsep.join(
+                    item for item in (str(browser_path), current) if item
+                )
+                kwargs["env"] = env
+        except (ImportError, OSError):
+            # Camoufox 0.4.x did not expose multiversion; those builds rely on
+            # their own launcher paths and do not need this compatibility fix.
+            pass
     if user_data_dir:
         kwargs["user_data_dir"] = user_data_dir
         kwargs["persistent_context"] = True

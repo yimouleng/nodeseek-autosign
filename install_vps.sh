@@ -121,10 +121,15 @@ fi
 # shellcheck disable=SC2086
 $SUDO apt-get install -y -qq --no-install-recommends $AVAIL 2>&1 | grep -v '^$' | tail -3 || true
 
-# 音频库是 Chromium 硬依赖，包名各发行版不同，单独补
-if ! apt-cache show libasound2 >/dev/null 2>&1; then
+# 音频库是 Camoufox/Chromium 的硬依赖，包名各发行版不同，单独补。
+if apt-cache show libasound2 >/dev/null 2>&1; then
+  $SUDO apt-get install -y -qq --no-install-recommends libasound2 >/dev/null 2>&1 || \
+    ylw "  libasound2 安装失败，浏览器可能无法启动"
+elif apt-cache show libasound2t64 >/dev/null 2>&1; then
   $SUDO apt-get install -y -qq --no-install-recommends libasound2t64 >/dev/null 2>&1 || \
-    ylw "  libasound2/t64 都装不上，Chromium 可能会缺库"
+    ylw "  libasound2t64 安装失败，浏览器可能无法启动"
+else
+  ylw "  libasound2/libasound2t64 都不可用，浏览器可能无法启动"
 fi
 
 grn "  系统依赖完成"

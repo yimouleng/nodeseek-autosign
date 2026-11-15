@@ -27,6 +27,7 @@ import platform
 import socket
 import sys
 import time
+from urllib.parse import urlsplit
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -217,6 +218,15 @@ def _widget_text(page, limit=90):
     return ""
 
 
+def _safe_request_url(url):
+    """Remove Turnstile query parameters before writing diagnostics."""
+    try:
+        parsed = urlsplit(url)
+        return f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+    except Exception:
+        return "<invalid url>"
+
+
 # ---------------------------------------------------------------- 真实挑战
 def check_challenge(url, headless, wait=45):
     section("5. 真实打开登录页（最关键）")
@@ -240,6 +250,22 @@ def check_challenge(url, headless, wait=45):
             user_data_dir=profile,
             proxy=os.getenv("AGENT_PROXY", ""),
         ) as page:
+            cf_network_errors = []
+
+            def record_failed(request):
+                if "challenges.cloudflare.com" in request.url:
+                    cf_network_errors.append(
+                        f"请求失败：{_safe_request_url(request.url)} ({request.failure or 'unknown'})"
+                    )
+
+            def record_response(response):
+                if "challenges.cloudflare.com" in response.url and response.status >= 400:
+                    cf_network_errors.append(
+                        f"HTTP {response.status}：{_safe_request_url(response.url)}"
+                    )
+
+            page.on("requestfailed", record_failed)
+            page.on("response", record_response)
             t0 = time.time()
             page.goto(url, wait_until="domcontentloaded", timeout=60000)
 
@@ -340,6 +366,8 @@ def check_challenge(url, headless, wait=45):
                 results["challenge"] = "unknown"
             else:
                 say(BAD, "Turnstile 组件：没加载出来")
+                for detail in list(dict.fromkeys(cf_network_errors))[:5]:
+                    say(BAD, f"  {detail}")
                 results["challenge"] = "no_widget"
 
             try:
