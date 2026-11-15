@@ -374,19 +374,9 @@ def _click_turnstile_checkbox(page) -> bool:
         _click_at(box["x"] + 30, y)
         _log("已点击 Turnstile 复选框（按住时长已模拟）")
 
-        # 微调兜底：点完若组件毫无反应（状态还是 pending 且没出 token），
-        # 说明没点准。Turnstile 复选框的实际圆心在 28~34px 之间浮动，
-        # 再补一枪横向微调的位置。
-        page.wait_for_timeout(1200)
-        try:
-            still_pending = (turnstile_state(page) == "pending"
-                             and not _acquire_ts_token(page).get("token"))
-        except Exception:
-            still_pending = False
-        if still_pending:
-            page.wait_for_timeout(random.randint(400, 900))
-            _click_at(box["x"] + 32, y)
-            _log("Turnstile 组件无响应，已横向微调补点一次")
+        # 不要立即补点。组件开始计算后状态可能仍短暂显示 pending，
+        # 过早点第二次会取消本轮验证并触发 onError。需要重试时由外层
+        # 在至少 15 秒后重新调用。
         return True
     except Exception as e:
         _log(f"坐标点击失败：{type(e).__name__}")
@@ -482,11 +472,10 @@ def _wait_turnstile(page, timeout=40, widget_only_ok=False):
         #   verifying → 可能真是转圈，也可能是状态误判；点一下最多重来一次，
         #               总比一直干等强
         #
-        # **2026-10-25 修正**：老逻辑 clicked==0 时只点一次，点歪了就再也不点。
-        # 但 Turnstile iframe 内部是混淆脚本、**无法用选择器定位**，
-        # 只能靠坐标点，命中不可能 100%。所以只要状态还是 pending
-        # （=没点中），就允许隔一段时间再点一次，最多 3 次。
-        if elapsed > 8 and time.time() - last_click > 6 and clicked < 3:
+        # 坐标点击可能没命中，但组件开始计算后状态也可能短暂保持 pending。
+        # README 的实测结论是重复点击会取消当前验证，所以最多点 2 次，
+        # 且两次至少间隔 15 秒。
+        if elapsed > 8 and time.time() - last_click > 15 and clicked < 2:
             if state != "verifying":
                 ok = _click_turnstile_checkbox(page)
                 last_click = time.time()
@@ -495,8 +484,8 @@ def _wait_turnstile(page, timeout=40, widget_only_ok=False):
                     page.wait_for_timeout(600)
                     _dbg(f"点击后状态：{turnstile_state(page)}")
                 else:
-                    _dbg("没定位到 Turnstile 组件，6 秒后重试点击")
-        elif state == "error" and clicked < 3 and time.time() - last_click > 10:
+                    _dbg("没定位到 Turnstile 组件，15 秒后重试点击")
+        elif state == "error" and clicked < 2 and time.time() - last_click > 15:
             _dbg("Turnstile 报错，重新点一次")
             _click_turnstile_checkbox(page)
             clicked += 1
