@@ -385,9 +385,9 @@ python test_deepflood.py
 | 现象 | 原因 | 处理 |
 |---|---|---|
 | 卡在 "Just a moment" | IP 被 CF 判高风险 | 换 IP 或挂代理（`AGENT_PROXY`），换引擎没用 |
-| 页面弹「人机验证服务加载失败」 | 无头模式 / 点错了隐藏元素 | 用有头（默认），代码已改成坐标点击 |
+| 页面弹「人机验证服务加载失败」 | 站点统一显示的组件加载或验证错误 | 先看日志中的 Cloudflare 原始错误码，再核对网络、有头模式和交互；不能仅据此判定 IP 不可用 |
 | 日志里 `Turnstile 组件状态：verifying` 卡 30 秒 | 组件在转圈计算，期间被重复点击会取消重来 | 已修：现在只点 1~2 次，间隔 ≥15 秒。若仍卡住说明 IP 评分不够 |
-| `TURNSTILE_INTERACT`（弹「人机验证服务加载失败」） | Turnstile 把点击判成 bot：点击按住时长≈0，或 WebGL 暴露 SwiftShader | 已修：按下-松开间隔 60~140ms；去掉 `--disable-gpu`；**必须 `apt install -y libgl1-mesa-dri`** |
+| `TURNSTILE_INTERACT`（弹「人机验证服务加载失败」） | Turnstile 错误回调；具体原因需结合原始错误码与网络日志 | 日志会保留组件的原始错误码（如 `600010` 表示验证失败）；同时检查点击间隔、设备属性是否稳定以及 WebGL，**必须 `apt install -y libgl1-mesa-dri`** |
 | `BAD_CREDENTIALS` | 密码错，或需要邮箱验证 | 先手动网页登录一次 |
 | `NEED_2FA` | 账号开了两步验证 | 配 `NS_TOTP_SECRET` |
 | `PAGE_ERROR` | 站点改版，选择器失效 | 看 `data/debug_login_page.png`，改 `agent/login_core.py` |
@@ -433,7 +433,12 @@ cookie/
 ├── NODESEEK_COOKIE_1.txt          当前 cookie
 ├── NODESEEK_COOKIE_1.meta.json    cookie 到期元数据（主动续期靠它判断）
 └── profiles/<账号>/               持久化浏览器 profile（记住设备的关键）
+    └── camoufox-identity.json     同一账号重启后复用的浏览器设备属性（权限 600）
 ```
+
+Camoufox 默认会在每次启动时随机生成设备属性，因此仅复用 profile 目录还不够。
+设备属性现在单独随 profile 保存；不缓存出口 IP、地理位置和时区，避免切换网络后沿用旧设置。
+该文件不包含账号密码或代理凭据，和 Cookie 一样应保留在本机，不要公开上传。
 
 ---
 

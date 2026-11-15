@@ -24,9 +24,11 @@ NodeSeek 现在的登录接口需要三样东西（详见 README 的“现状分
 from __future__ import annotations
 
 import os
+import json
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from contextlib import contextmanager
 from typing import Optional
@@ -187,6 +189,45 @@ def parse_proxy(proxy: Optional[str]) -> Optional[dict]:
     return cfg
 
 
+def _persistent_camoufox_options(kwargs, user_data_dir):
+    from camoufox.utils import launch_options
+
+    def device_properties(config):
+        # 网络位置随出口重新计算，不应把代理 IP/时区固定进设备身份。
+        return {
+            key: value for key, value in config.items()
+            if key != "timezone" and not key.startswith(("geolocation:", "webrtc:", "locale:"))
+        }
+
+    identity_path = os.path.join(user_data_dir, "camoufox-identity.json")
+    if os.path.exists(identity_path):
+        with open(identity_path, encoding="utf-8") as handle:
+            identity = json.load(handle)
+        if not isinstance(identity, dict) or not identity.get("navigator.userAgent"):
+            raise RuntimeError(f"浏览器设备配置无效，请检查 {identity_path}")
+        kwargs["config"] = device_properties(identity)
+
+    options = launch_options(**kwargs)
+    chunks = sorted(
+        (int(key.rsplit("_", 1)[1]), value)
+        for key, value in options.get("env", {}).items()
+        if key.startswith("CAMOU_CONFIG_")
+    )
+    identity = json.loads("".join(value for _, value in chunks))
+    if not identity.get("navigator.userAgent"):
+        raise RuntimeError("Camoufox 没有返回完整设备配置，停止启动以避免设备身份变化")
+    # 仅保存浏览器设备属性；不保存进程环境变量、账号密码或代理凭据。
+    fd, temporary = tempfile.mkstemp(prefix=".camoufox-identity-", dir=user_data_dir)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(device_properties(identity), handle, ensure_ascii=False)
+        os.replace(temporary, identity_path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+    return options
+
+
 # --------------------------------------------------------------------------
 # 统一入口
 # --------------------------------------------------------------------------
@@ -275,11 +316,17 @@ def _camoufox_page(headless, user_data_dir, proxy_cfg, locale, humanize):
             pass
     if user_data_dir:
         kwargs["user_data_dir"] = user_data_dir
-        kwargs["persistent_context"] = True
     if proxy_cfg:
         kwargs["proxy"] = proxy_cfg
 
-    cm = Camoufox(**kwargs)
+    if user_data_dir:
+        # profile 只保存 Cookie/存储，Camoufox 默认每次启动仍会随机生成设备属性。
+        cm = Camoufox(
+            from_options=_persistent_camoufox_options(kwargs, user_data_dir),
+            persistent_context=True,
+        )
+    else:
+        cm = Camoufox(**kwargs)
     with cm as browser:
         page = browser.new_page()
         try:

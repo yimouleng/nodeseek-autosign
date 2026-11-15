@@ -457,13 +457,16 @@ def _wait_turnstile(page, timeout=40, widget_only_ok=False):
             success_at = None
 
         if "人机验证服务加载失败" in _body_text(page):
-            # 这不是网络问题（网络通的时候照样弹）——是 Turnstile onError：
-            # 点击交互或浏览器指纹被判 bot。重载页面换一个新的 widget 重来，
-            # 只有连续多次都这样才彻底放弃。
+            # 站点把不同错误统一显示为“服务加载失败”，优先报告组件原始错误码，
+            # 不能仅据此把原因认定为 IP、浏览器指纹或网络连接。
+            try:
+                code = page.evaluate("() => window.__ns_turnstile_error || ''")
+            except Exception:
+                code = ""
+            detail = f"Cloudflare 验证失败（原始错误码：{code}）" if code else "Turnstile 返回错误回调（未取得原始错误码）"
             raise LoginError(
                 "TURNSTILE_INTERACT",
-                "Turnstile 拒绝了本次交互（onError）：点击特征或指纹被判定为机器人，"
-                "重载页面重试中",
+                detail,
             )
 
         elapsed = time.time() - start
@@ -2392,6 +2395,16 @@ def login(page, username: str, password: str, totp_secret: Optional[str] = None,
     成功返回：{"cookie": "...", "cookies": [...], "username": "..."}
     失败抛 LoginError。
     """
+    page.add_init_script(r"""(() => {
+        window.__ns_turnstile_error = '';
+        window.addEventListener('message', (event) => {
+            if (!/^https:\/\/([a-z0-9-]+\.)*challenges\.cloudflare\.com$/.test(event.origin)) return;
+            const data = event.data;
+            if (!data || data.event !== 'fail') return;
+            const code = String(data.code || '');
+            if (/^\d{6}$/.test(code)) window.__ns_turnstile_error = code;
+        });
+    })();""")
     _log(f"打开登录页 {LOGIN_URL}")
     page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
     _probe_webgl(page)
