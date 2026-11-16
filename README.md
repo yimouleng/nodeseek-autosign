@@ -135,7 +135,13 @@ cd /root/nodeseek-autosign
 bash install_cron.sh
 ```
 
-脚本会自动按**北京时间**换算本机时区的触发时刻（服务器在 UTC / 美国 / 欧洲都不会错位），
+如果安装在 `/opt/nodeseek-autosign` 的 systemd VPS，且需要停机错过 2:30 后开机补跑，
+可改用 `bash install_systemd_timer.sh`。它按北京时间每天 2:30 运行，启用
+`Persistent=true`，并在启用定时器后备份 crontab、移除本项目的旧签到条目。
+查看状态：`systemctl list-timers nodeseek-sign.timer` 和
+`systemctl status nodeseek-sign.service`。不要同时安装 cron 签到条目。
+
+以上 cron 脚本会自动按**北京时间**换算本机时区的触发时刻（服务器在 UTC / 美国 / 欧洲都不会错位），
 默认北京时间 **00:10** 触发 —— NodeSeek 每日签到状态在**北京时间 0~2 点刷新**，
 刷新后越早签到，当天签到人数越少，「试试手气」越容易抽到高值。
 
@@ -355,8 +361,8 @@ python test_deepflood.py
 | `LOGIN_PROXY` | 空 | 可选独立 Chromium 登录续期代理；启用后日常签到仍走 `AGENT_PROXY` |
 | `NS_SIGNER_PYTHON` / `NS_SIGNER_PACKAGE` | 空 | 可选独立 ns-signer 的 Python 和源码路径；两者都需配置 |
 | `NS_SIGNER_DATA_DIR` / `NS_SIGNER_BROWSERS_PATH` | 空 | 独立登录会话和浏览器目录 |
-| `NS_SIGNER_NODES_FILE` / `NS_SIGNER_CONTROLLER_SECRET_FILE` | 空 | 私有 JSON 节点列表和本机 Mihomo 控制密钥；按列表顺序最多尝试三个可用节点，仅在 `no-page`、`no-turnstile` 时换节点 |
-| `NS_SIGNER_RETRIES_PER_NODE` / `NS_SIGNER_TIMEOUT` | 2 / 900 | 每节点登录尝试次数、整个登录过程超时秒数 |
+| `NS_SIGNER_NODES_FILE` / `NS_SIGNER_CONTROLLER_SECRET_FILE` | 空 | 私有 JSON 节点列表和本机 Mihomo 控制密钥；从上次选中的节点开始，跳过断线节点，登录遇页面、验证或浏览器错误时逐个切换；成功节点会保留 |
+| `NS_SIGNER_RETRIES_PER_NODE` / `NS_SIGNER_TIMEOUT` | 2 / 900 | 每节点登录尝试次数、整个登录过程超时秒数；超时后下次从最后选中的节点继续 |
 | `NS_TOTP_SECRET` | 空 | 账号开了 2FA 时填 Base32 密钥 |
 | `NS_RANDOM` | true | 签到奖励方式：`true` =「试试手气」（随机 1~5 鸡腿），`false` = 固定「鸡腿 x 5」 |
 | `NS_RENEW_BEFORE_DAYS` | 5 | cookie 剩余寿命不足几天就主动换新（设 0 关闭） |

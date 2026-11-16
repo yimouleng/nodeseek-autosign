@@ -1,0 +1,14 @@
+[Unit]
+Description=NodeSeek daily sign-in
+Wants=network-online.target nodeseek-proxy.service
+After=network-online.target nodeseek-proxy.service
+StartLimitIntervalSec=12h
+StartLimitBurst=3
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/nodeseek-autosign
+ExecStart=/usr/bin/bash /opt/nodeseek-autosign/run_sign.sh
+TimeoutStartSec=25min
+Restart=on-failure
+RestartSec=15min

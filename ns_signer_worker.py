@@ -10,10 +10,12 @@ import os
 from pathlib import Path
 import re
 import sys
+import urllib.error
+import urllib.parse
 import urllib.request
 
 
-RETRYABLE_OUTCOMES = {"no-page", "no-turnstile"}
+RETRYABLE_OUTCOMES = {"no-page", "no-turnstile", "blocked", "unverified", "error"}
 
 
 def _controller_request(method, payload=None):
@@ -36,8 +38,31 @@ def _candidate_nodes():
     configured = json.loads(Path(os.environ["NS_SIGNER_NODES_FILE"]).read_text())
     if not isinstance(configured, list):
         raise ValueError("node list must be an array")
-    available = set(_controller_request("GET").get("all", []))
-    return [node for node in dict.fromkeys(configured) if node in available][:3]
+    group = _controller_request("GET")
+    available = set(group.get("all", []))
+    nodes = [node for node in dict.fromkeys(configured) if node in available]
+    current = group.get("now")
+    if current in nodes:
+        index = nodes.index(current)
+        nodes = nodes[index:] + nodes[:index]
+    return nodes
+
+
+def _node_reachable(node):
+    token = Path(os.environ["NS_SIGNER_CONTROLLER_SECRET_FILE"]).read_text().strip()
+    query = urllib.parse.urlencode({"timeout": 5000, "url": "https://www.nodeseek.com/"})
+    url = "http://127.0.0.1:9090/proxies/" + urllib.parse.quote(node, safe="") + "/delay?" + query
+    request = urllib.request.Request(url, headers={"Authorization": "Bearer " + token})
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(request, timeout=7) as response:
+            return bool(json.load(response).get("delay"))
+    except urllib.error.HTTPError as exc:
+        if exc.code in (401, 403):
+            raise
+        return False
+    except urllib.error.URLError:
+        return False
 
 
 def _install_mail_compatibility(email_code):
@@ -92,9 +117,11 @@ def main():
             print(json.dumps({"success": False, "outcome": "busy"}))
             return
 
-        outcome = "no-candidate"
+        outcome = "no-reachable-node"
         for node in _candidate_nodes():
             _controller_request("PUT", {"name": node})
+            if not _node_reachable(node):
+                continue
             with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
                 cookies, outcome = login.login_with_outcome(config)
             if cookies:

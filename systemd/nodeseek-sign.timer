@@ -1,0 +1,10 @@
+[Unit]
+Description=NodeSeek sign-in at 02:30 Beijing time, catching up after downtime
+
+[Timer]
+OnCalendar=*-*-* 02:30:00 Asia/Shanghai
+Persistent=true
+Unit=nodeseek-sign.service
+
+[Install]
+WantedBy=timers.target

@@ -10,6 +10,7 @@ import tempfile
 import time
 from types import SimpleNamespace
 import unittest
+import urllib.error
 from unittest.mock import Mock, patch
 
 import ns_signer_adapter
@@ -66,14 +67,14 @@ class LoginHandoffTests(unittest.TestCase):
 
 
 class NodeSelectionTests(unittest.TestCase):
-    def test_prefers_configured_nodes_and_limits_attempts(self):
+    def test_resumes_from_selected_node_and_includes_all_configured_nodes(self):
         with tempfile.TemporaryDirectory() as directory:
             file = Path(directory, "nodes.json")
             file.write_text(json.dumps(["Taiwan", "US", "Taiwan", "missing", "HK", "Japan"]))
             with patch.dict(os.environ, {"NS_SIGNER_NODES_FILE": str(file)}), patch.object(
-                ns_signer_worker, "_controller_request", return_value={"all": ["Taiwan", "US", "HK", "Japan"], "now": "Japan"}
+                ns_signer_worker, "_controller_request", return_value={"all": ["Taiwan", "US", "HK", "Japan"], "now": "US"}
             ):
-                self.assertEqual(ns_signer_worker._candidate_nodes(), ["Taiwan", "US", "HK"])
+                self.assertEqual(ns_signer_worker._candidate_nodes(), ["US", "HK", "Japan", "Taiwan"])
 
     def test_switches_only_for_page_or_turnstile_failures(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -92,10 +93,45 @@ class NodeSelectionTests(unittest.TestCase):
                 ns_signer_worker, "_controller_request", controller
             ), patch.object(ns_signer_worker, "_install_mail_compatibility"), patch.object(
                 ns_signer_worker.logging, "disable"
+            ), patch.object(ns_signer_worker, "_node_reachable", return_value=True
             ), contextlib.redirect_stdout(io.StringIO()):
                 ns_signer_worker.main()
             self.assertEqual([call.args[1]["name"] for call in controller.call_args_list], ["Taiwan", "US"])
             self.assertEqual(login.login_with_outcome.call_count, 2)
+
+    def test_skips_unreachable_node_and_keeps_successful_selection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            email_code = SimpleNamespace(extract_code=lambda text: "", wait_for_code=lambda *a: "")
+            login = SimpleNamespace(login_with_outcome=Mock(return_value=([{"name": "session"}], "success")))
+            package = SimpleNamespace(email_code=email_code, login=login)
+            controller = Mock()
+            with patch.dict(sys.modules, {
+                "ns_signer": package,
+                "ns_signer.config": SimpleNamespace(get_config=lambda: {}),
+            }), patch.dict(os.environ, {
+                "DATA_DIR": directory, "LOGIN_PROXY": "http://127.0.0.1:7893",
+            }), patch.object(ns_signer_worker, "_candidate_nodes", return_value=["dead", "working", "unused"]), patch.object(
+                ns_signer_worker, "_controller_request", controller
+            ), patch.object(ns_signer_worker, "_install_mail_compatibility"), patch.object(
+                ns_signer_worker.logging, "disable"
+            ), patch.object(ns_signer_worker, "_node_reachable", side_effect=[False, True]
+            ), contextlib.redirect_stdout(io.StringIO()):
+                ns_signer_worker.main()
+            self.assertEqual([call.args[1]["name"] for call in controller.call_args_list], ["dead", "working"])
+            self.assertEqual(login.login_with_outcome.call_count, 1)
+
+    def test_marks_unreachable_proxy_as_failed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            secret = Path(directory, "controller.secret")
+            secret.write_text("test-secret")
+            opener = Mock()
+            opener.open.side_effect = urllib.error.HTTPError(
+                "http://127.0.0.1:9090", 504, "timeout", {}, None,
+            )
+            with patch.dict(os.environ, {"NS_SIGNER_CONTROLLER_SECRET_FILE": str(secret)}), patch.object(
+                ns_signer_worker.urllib.request, "build_opener", return_value=opener
+            ):
+                self.assertFalse(ns_signer_worker._node_reachable("unreachable"))
 
 
 class WorkerTimeoutTests(unittest.TestCase):

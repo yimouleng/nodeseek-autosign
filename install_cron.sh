@@ -263,6 +263,11 @@ if [ "${1:-}" = "--dryrun" ] || [ "${1:-}" = "dryrun" ]; then
 fi
 
 # ---------------------------------------------------------------- 环境自检
+if command -v systemctl >/dev/null 2>&1 && systemctl is-enabled --quiet nodeseek-sign.timer 2>/dev/null; then
+  echo "NodeSeek systemd timer is enabled; disable it before installing a cron schedule" >&2
+  exit 1
+fi
+
 echo "=== 环境检查 ==="
 echo "项目目录 : $APP_DIR"
 
