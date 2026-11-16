@@ -323,9 +323,8 @@ cd /root/nodeseek-autosign
 | 签到参数 | `NS_RANDOM` 控制「试试手气」 | 固定 `random=true` 走「试试手气」（实测 10~12 个；固定按钮只有 5 个） |
 | cookie 失效后 | 自动重新登录 | 自动重新走一键登录；NS cookie 也过期时会告警并说清原因 |
 
-> **不影响 NS。** 这个站点是纯新增的：NS 的配置、请求参数、判定文案、
-> 登录路径一个字符都没动（`recover_cookie` 里按 `login_mode` 分流，
-> NS 没有这个键就走原来的 `browser_login_detail`）。两边 cookie 分别存在
+> DeepFlood 仍按 `login_mode` 走独立登录路径；NodeSeek 可以选择独立 Chromium 续期。
+> 两边 cookie 分别存在
 > `NODESEEK_COOKIE_*.txt` / `DEEPFLOOD_COOKIE_*.txt`，互不覆盖。
 > 没配 `DF_USER_PASS` 也没配 `DF_COOKIE` 时 DF 直接跳过，NS 照常签到。
 
@@ -352,7 +351,12 @@ python test_deepflood.py
 | `LOGIN_LOCAL_FALLBACK` | true | agent 失败后是否再用本机浏览器试一次 |
 | `LOGIN_LOCAL_HEADLESS` | false | 本地浏览器默认有头；设 true 走无头（过不了 CF） |
 | `AGENT_ENGINE` | auto | `patchright` / `camoufox` / `playwright` |
-| `AGENT_PROXY` | 空 | NodeSeek 浏览器登录、Cookie 校验、签到和统计共用代理，如 `http://user:pass@host:port`；DeepFlood HTTP 签到不受影响 |
+| `AGENT_PROXY` | 空 | NodeSeek 默认浏览器登录、Cookie 校验、签到和统计共用代理，如 `http://user:pass@host:port`；独立 Chromium 登录改用 `LOGIN_PROXY`，DeepFlood HTTP 签到不受影响 |
+| `LOGIN_PROXY` | 空 | 可选独立 Chromium 登录续期代理；启用后日常签到仍走 `AGENT_PROXY` |
+| `NS_SIGNER_PYTHON` / `NS_SIGNER_PACKAGE` | 空 | 可选独立 ns-signer 的 Python 和源码路径；两者都需配置 |
+| `NS_SIGNER_DATA_DIR` / `NS_SIGNER_BROWSERS_PATH` | 空 | 独立登录会话和浏览器目录 |
+| `NS_SIGNER_NODES_FILE` / `NS_SIGNER_CONTROLLER_SECRET_FILE` | 空 | 私有 JSON 节点列表和本机 Mihomo 控制密钥；按列表顺序最多尝试三个可用节点，仅在 `no-page`、`no-turnstile` 时换节点 |
+| `NS_SIGNER_RETRIES_PER_NODE` / `NS_SIGNER_TIMEOUT` | 2 / 900 | 每节点登录尝试次数、整个登录过程超时秒数 |
 | `NS_TOTP_SECRET` | 空 | 账号开了 2FA 时填 Base32 密钥 |
 | `NS_RANDOM` | true | 签到奖励方式：`true` =「试试手气」（随机 1~5 鸡腿），`false` = 固定「鸡腿 x 5」 |
 | `NS_RENEW_BEFORE_DAYS` | 5 | cookie 剩余寿命不足几天就主动换新（设 0 关闭） |

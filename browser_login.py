@@ -48,7 +48,7 @@ def _local_engine_available() -> bool:
         return False
 
 
-PLAYWRIGHT_AVAILABLE = bool(_agent_urls()) or _local_engine_available()
+PLAYWRIGHT_AVAILABLE = bool(_agent_urls()) or _local_engine_available() or bool(os.getenv("NS_SIGNER_PYTHON"))
 
 
 def _is_private_host(host: str) -> bool:
@@ -177,6 +177,17 @@ def browser_login_detail(site_config, user, pwd, headless=True):
             # 继续换机器重试意义不大，直接把信号带出去让上层告警。
             errors.append("设备记忆疑似已失效（这台机器之前登录过，本次仍要求邮箱验证）")
             break
+
+    if site == "nodeseek":
+        from ns_signer_adapter import enabled, login_detail
+
+        if enabled():
+            result = login_detail(user, pwd)
+            if result.get("cookie"):
+                print(f"[browser_login] 隔离浏览器登录成功  有效期={result.get('cookie_life', '?')}")
+            else:
+                print(f"[browser_login] 隔离浏览器登录失败：{result.get('error')} {result.get('message', '')}")
+            return result
 
     # ---------- B. 本地浏览器 ----------
     if not _agent_urls() or os.getenv("LOGIN_LOCAL_FALLBACK", "true").lower() in ("1", "true", "yes"):

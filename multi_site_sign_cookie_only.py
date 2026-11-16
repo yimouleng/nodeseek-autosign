@@ -19,6 +19,17 @@ except ImportError:
     print("【严重警告】未安装 curl_cffi 模块！")
     import requests
 
+# 在检测浏览器提供者前加载配置，避免独立续期程序被误判为不可用。
+_ENV_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+if os.path.exists(_ENV_FILE):
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(_ENV_FILE, override=False)
+    except ImportError:
+        print("!! 检测到 .env，但没装 python-dotenv，里面的配置不会生效")
+        print("   修复：.venv/bin/pip install python-dotenv")
+        print("   （或者直接把变量 export 到环境里）")
+
 # 验证码解决器
 try:
     from turnstile_solver import TurnstileSolver
@@ -40,17 +51,6 @@ except ImportError:
     browser_login_detail = None
     browser_sign = None
     deepflood_login_detail = None
-
-# 环境变量（显式指向脚本同目录的 .env，避免 cwd 不同读不到）
-_ENV_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
-if os.path.exists(_ENV_FILE):
-    try:
-        from dotenv import load_dotenv
-        load_dotenv(_ENV_FILE, override=False)
-    except ImportError:
-        print("!! 检测到 .env，但没装 python-dotenv，里面的配置不会生效")
-        print("   修复：.venv/bin/pip install python-dotenv")
-        print("   （或者直接把变量 export 到环境里）")
 
 # === 通知模块 ===
 hadsend = False
