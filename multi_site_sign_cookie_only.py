@@ -182,22 +182,64 @@ def save_notification_status(status):
         print(f"保存通知状态失败: {e}")
 
 
-def should_send_notification(site_name):
-    """检查是否应该发送通知（每天只发送一次）"""
+def should_send_notification(site_name, signature=""):
+    """每个北京时间日期首次发送，结果变化时再发送。"""
     status = load_notification_status()
-    today = datetime.now().strftime('%Y-%m-%d')
+    today = datetime.now(ZoneInfo("Asia/Shanghai")).strftime('%Y-%m-%d')
     site_status = status.get(site_name, {})
-    last_sent = site_status.get('last_sent_date')
-    return last_sent != today
+    return (site_status.get('last_sent_date') != today
+            or site_status.get('last_signature') != signature)
 
 
-def mark_notification_sent(site_name):
+def mark_notification_sent(site_name, signature=""):
     """标记通知已发送"""
     status = load_notification_status()
-    today = datetime.now().strftime('%Y-%m-%d')
+    today = datetime.now(ZoneInfo("Asia/Shanghai")).strftime('%Y-%m-%d')
     if site_name not in status: status[site_name] = {}
     status[site_name]['last_sent_date'] = today
+    status[site_name]['last_signature'] = signature
     save_notification_status(status)
+
+
+def notification_signature(results):
+    state = [
+        ["ok" if r.get("status") in ("success", "already") else r.get("status"),
+         r.get("today_amount")]
+        for r in results
+    ]
+    return json.dumps(state, ensure_ascii=False)
+
+
+def notify_site(site_name, title, content, signature):
+    if not hadsend or not should_send_notification(site_name, signature):
+        print("今日相同结果已通知过，跳过推送")
+        return
+    try:
+        outcomes = send(title, content, include_quote=False) or {}
+    except Exception as exc:
+        print(f"通知调用失败: {type(exc).__name__}")
+        return
+    if not outcomes:
+        print("没有可用通知渠道，保留待通知状态")
+        return
+    telegram_enabled = bool(os.getenv("TG_BOT_TOKEN") and os.getenv("TG_USER_ID"))
+    if telegram_enabled and outcomes.get("telegram_bot") is not True:
+        print("Telegram 推送未成功，保留待通知状态")
+        return
+    mark_notification_sent(site_name, signature)
+    print("通知已推送")
+
+
+def notification_line(result):
+    line = f"{result['user']}: {result['msg']}"
+    if result.get('status') in ('success', 'already'):
+        amount = result.get('today_amount')
+        line += f" | 今日鸡腿：{amount} 个" if amount is not None else " | 今日鸡腿：暂未获取"
+    else:
+        line += " | 今日鸡腿：无法确认"
+    if result.get('stats'):
+        line += f" (近30天：{result['stats']['total']} 个)"
+    return line
 
 
 # === Cookie 文件操作 ===
@@ -685,8 +727,18 @@ def get_stats(cookie, site_config, days=30):
         count = len(valid_records)
         avg = round(total/count, 2) if count > 0 else 0
 
-        return {'total': total, 'avg': avg, 'days': count, 'period': f"近{days}天"}
+        today = now.strftime('%Y-%m-%d')
+        today_records = [r['amount'] for r in valid_records if r['date'] == today]
+        return {
+            'total': total, 'avg': avg, 'days': count, 'period': f"近{days}天",
+            'today_amount': sum(today_records) if today_records else None,
+        }
     except: return None
+
+
+def reward_from_message(message):
+    match = re.search(r"(\d+)\s*个?\s*鸡腿|鸡腿\s*(\d+)\s*个?", message or "")
+    return int(next(part for part in match.groups() if part)) if match else None
 
 
 # === 主逻辑 ===
@@ -1009,11 +1061,16 @@ def process_site(site_name, site_config, ns_random):
                     device_memory_expired = bool(new_meta.get("device_memory_expired"))
                     print("主动续期失败，今天的签到结果不受影响")
 
+        today_amount = (stats or {}).get('today_amount')
+        if today_amount is None and status in ("success", "already"):
+            today_amount = reward_from_message(msg)
+
         site_results.append({
             'user': user,
             'status': status,
             'msg': msg,
             'stats': stats,
+            'today_amount': today_amount,
             'device_memory_expired': device_memory_expired,
             'email_verify_used': email_verify_used,
         })
@@ -1049,21 +1106,19 @@ def process_site(site_name, site_config, ns_random):
             print(f"告警推送失败: {e}")
 
     # 发送通知
-    if hadsend and should_send_notification(site_name):
+    if hadsend:
         msg_lines = []
         for r in site_results:
-            line = f"{r['user']}: {r['msg']}"
-            if r.get('stats'):
-                line += f" (近30天: {r['stats']['total']}个)"
-            msg_lines.append(line)
+            msg_lines.append(notification_line(r))
 
         if msg_lines:
             notify_content = f"{site_config['name']} 汇总\n" + "\n".join(msg_lines)
-            send(f"{site_config['name']} 签到", notify_content)
-            mark_notification_sent(site_name)
-            print("通知已尝试推送")
-    else:
-        print("今日已通知过，跳过推送")
+            failed_count = sum(r.get('status') not in ('success', 'already') for r in site_results)
+            label = "失败" if failed_count == len(site_results) else "部分失败" if failed_count else "成功"
+            notify_site(
+                site_name, f"{site_config['name']} 签到{label}", notify_content,
+                notification_signature(site_results),
+            )
 
     return site_results
 
@@ -1079,11 +1134,26 @@ def main():
             configured = configured or bool(results)
             if any(r.get("status") not in ("success", "already") for r in results):
                 failed = True
+            if (results and os.getenv("TG_BOT_TOKEN") and os.getenv("TG_USER_ID")
+                    and should_send_notification(name, notification_signature(results))):
+                print(f"{config['name']} Telegram 通知未送达")
+                failed = True
         except Exception as e:
-            print(f"站点异常: {e}")
+            print(f"站点异常: {type(e).__name__}")
+            notify_site(
+                name, f"{config['name']} 签到失败",
+                f"{config['name']} 任务异常：{type(e).__name__}\n今日鸡腿：无法确认",
+                "exception",
+            )
             failed = True
     if not configured:
         print("没有任何站点完成签到检查")
+        if not failed:
+            notify_site(
+                "nodeseek", "NodeSeek 签到失败",
+                "没有可用的签到账号或站点检查未完成\n今日鸡腿：无法确认",
+                "no-accounts",
+            )
     return 1 if failed or not configured else 0
 
 

@@ -55,6 +55,11 @@ class SignExitTests(unittest.TestCase):
     def test_account_failure_is_reported(self):
         self.assertEqual(self.run_main([{"status": "fail"}]), 1)
 
+    def test_telegram_delivery_failure_is_reported(self):
+        with patch.dict(os.environ, {"TG_BOT_TOKEN": "test", "TG_USER_ID": "123"}), \
+                patch.object(sign_module, "should_send_notification", return_value=True):
+            self.assertEqual(self.run_main([{"status": "success"}]), 1)
+
     def test_site_exception_is_reported(self):
         self.assertEqual(self.run_main(error=RuntimeError("login failed")), 1)
 

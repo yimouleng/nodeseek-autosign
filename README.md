@@ -374,7 +374,7 @@ python test_deepflood.py
 | `NS_CODE_URL` | 空 | HTTP 取码地址，返回纯文本验证码 |
 | `NS_IMAP_HOST` / `NS_IMAP_USER` / `NS_IMAP_PASS` | 空 | IMAP 自动收码（用邮箱授权码，不是登录密码） |
 | `NS_CODE_TIMEOUT` | 180 | 等验证码的最长秒数 |
-| `TG_BOT_TOKEN` / `TG_USER_ID` | 空 | Telegram 推送 |
+| `TG_BOT_TOKEN` / `TG_USER_ID` | 空 | Telegram 推送；先向机器人发送 `/start`，再从 `getUpdates` 获取私聊 ID |
 
 通知渠道全部通过环境变量配，不用改代码，支持：
 
@@ -382,6 +382,8 @@ python test_deepflood.py
 > PushDeer、Gotify、iGot、Qmsg、SMTP 邮件、Synology Chat、自定义 Webhook
 
 完整变量和获取方法见 [`.env.example`](.env.example) 的「通知服务」段，配几个就推几个。
+签到成功、已签到或失败都会报告结果；能从当日统计读取时，消息会写明今日鸡腿数量。
+同一天结果由失败变成功会补发，Telegram 发送失败不会记为已通知。
 
 > 服务器在国内或访问不了 `api.telegram.org` 时，用 `TG_API_HOST` 填反代域名，
 > 或用 `TG_PROXY_HOST` / `TG_PROXY_PORT` 走本机代理。

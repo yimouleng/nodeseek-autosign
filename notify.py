@@ -560,13 +560,13 @@ def wecom_bot(title: str, content: str) -> None:
         print("企业微信机器人推送失败！")
 
 
-def telegram_bot(title: str, content: str) -> None:
+def telegram_bot(title: str, content: str) -> bool:
     """
     使用 telegram 机器人 推送消息。
     """
     if not push_config.get("TG_BOT_TOKEN") or not push_config.get("TG_USER_ID"):
         print("tg 服务的 bot_token 或者 user_id 未设置!!\n取消推送")
-        return
+        return False
     print("tg 服务启动")
 
     if push_config.get("TG_API_HOST"):
@@ -578,32 +578,34 @@ def telegram_bot(title: str, content: str) -> None:
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
     payload = {
         "chat_id": str(push_config.get("TG_USER_ID")),
-        "message_thread_id": str(push_config.get("TG_THREAD_ID")),
         "text": f"{title}\n\n{content}",
         "disable_web_page_preview": "true",
     }
+    if push_config.get("TG_THREAD_ID"):
+        payload["message_thread_id"] = str(push_config["TG_THREAD_ID"])
     proxies = None
     if push_config.get("TG_PROXY_HOST") and push_config.get("TG_PROXY_PORT"):
-        if push_config.get("TG_PROXY_AUTH") is not None and "@" not in push_config.get(
-            "TG_PROXY_HOST"
-        ):
-            push_config["TG_PROXY_HOST"] = (
-                push_config.get("TG_PROXY_AUTH")
-                + "@"
-                + push_config.get("TG_PROXY_HOST")
-            )
+        proxy_host = push_config["TG_PROXY_HOST"]
+        if push_config.get("TG_PROXY_AUTH") and "@" not in proxy_host:
+            proxy_host = push_config["TG_PROXY_AUTH"] + "@" + proxy_host
         proxyStr = "http://{}:{}".format(
-            push_config.get("TG_PROXY_HOST"), push_config.get("TG_PROXY_PORT")
+            proxy_host, push_config.get("TG_PROXY_PORT")
         )
         proxies = {"http": proxyStr, "https": proxyStr}
-    response = requests.post(
-        url=url, headers=headers, params=payload, proxies=proxies
-    ).json()
-
-    if response["ok"]:
-        print("tg 推送成功！")
-    else:
-        print("tg 推送失败！")
+    for attempt in range(2):
+        try:
+            response = requests.post(
+                url=url, headers=headers, data=payload, proxies=proxies, timeout=15
+            ).json()
+            if response.get("ok"):
+                print("tg 推送成功！")
+                return True
+        except (requests.RequestException, ValueError):
+            pass
+        if attempt == 0:
+            time.sleep(2)
+    print("tg 推送失败！")
+    return False
 
 
 def aibotk(title: str, content: str) -> None:
@@ -867,7 +869,7 @@ def one() -> str:
     :return:
     """
     url = "https://v1.hitokoto.cn/"
-    res = requests.get(url).json()
+    res = requests.get(url, timeout=5).json()
     return res["hitokoto"] + "    ----" + res["from"]
 
 
@@ -935,7 +937,8 @@ def add_notify_function():
     return notify_function
 
 
-def send(title: str, content: str, ignore_default_config: bool = False, **kwargs):
+def send(title: str, content: str, ignore_default_config: bool = False,
+         include_quote: bool = True, **kwargs):
     if kwargs:
         global push_config
         if ignore_default_config:
@@ -954,16 +957,28 @@ def send(title: str, content: str, ignore_default_config: bool = False, **kwargs
             print(f"{title} 在SKIP_PUSH_TITLE环境变量内，跳过推送！")
             return
 
-    hitokoto = push_config.get("HITOKOTO")
-    content += "\n\n" + one() if hitokoto else ""
+    hitokoto = push_config.get("HITOKOTO") if include_quote else False
+    if hitokoto:
+        try:
+            content += "\n\n" + one()
+        except (requests.RequestException, ValueError, KeyError, TypeError):
+            print("一言获取失败，继续推送")
 
     notify_function = add_notify_function()
-    ts = [
-        threading.Thread(target=mode, args=(title, content), name=mode.__name__)
-        for mode in notify_function
-    ]
+    outcomes = {}
+
+    def invoke(mode):
+        try:
+            outcomes[mode.__name__] = mode(title, content)
+        except Exception as exc:
+            outcomes[mode.__name__] = False
+            print(f"{mode.__name__} 推送异常: {type(exc).__name__}")
+
+    ts = [threading.Thread(target=invoke, args=(mode,), name=mode.__name__)
+          for mode in notify_function]
     [t.start() for t in ts]
     [t.join() for t in ts]
+    return outcomes
 
 
 def main():
