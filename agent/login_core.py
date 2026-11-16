@@ -945,7 +945,7 @@ def _poll_code_imap(timeout: int) -> str:
                 if typ == "OK" and data and data[0]:
                     ids = data[0].split()[-10:]
                     for mid in reversed(ids):
-                        typ, msg_data = M.fetch(mid, "(RFC822)")
+                        typ, msg_data = M.fetch(mid, "(BODY.PEEK[])")
                         if typ != "OK":
                             continue
                         msg = _email.message_from_bytes(msg_data[0][1])
@@ -964,10 +964,9 @@ def _poll_code_imap(timeout: int) -> str:
                                         part.get_content_charset() or "utf-8", errors="ignore")
                                 except Exception:
                                     pass
-                        blob = json.dumps(msg.items(), ensure_ascii=False) + " " + (subj or "")
-                        if sender_kw and sender_kw not in blob.lower():
+                        if sender_kw and sender_kw not in (msg.get("From") or "").lower():
                             continue
-                        code = _extract_code_from_text(subj or blob)
+                        code = _extract_code_from_text(subj)
                         if code:
                             try:
                                 M.store(mid, "+FLAGS", "\\Seen")
