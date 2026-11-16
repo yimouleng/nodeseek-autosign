@@ -8,6 +8,7 @@ import re
 import hashlib
 import sys
 from datetime import datetime, timedelta
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 # === 核心库加载 ===
@@ -394,7 +395,18 @@ def get_accounts(site_config):
 
 
 # === 核心业务逻辑 ===
-def create_session(cookie_str=None):
+def safe_network_error(error):
+    message = str(error)
+    proxy = os.getenv("AGENT_PROXY", "").strip()
+    if proxy:
+        parsed = urlsplit(proxy)
+        for secret in (proxy, parsed.username, parsed.password):
+            if secret:
+                message = message.replace(secret, "[redacted]")
+    return message
+
+
+def create_session(cookie_str=None, site_config=None):
     """创建一个预配置的 Session 对象"""
     session = requests.Session()
     session.headers = {
@@ -407,6 +419,10 @@ def create_session(cookie_str=None):
             if '=' in cookie:
                 k, v = cookie.split('=', 1)
                 session.cookies.set(k.strip(), v.strip())
+    if site_config and site_config.get("type") == "nodeseek":
+        proxy = os.getenv("AGENT_PROXY", "").strip()
+        if proxy:
+            session.proxies.update({"http": proxy, "https": proxy})
     return session
 
 
@@ -426,7 +442,7 @@ def check_cookie_validity(site_config, cookie_str, retries=3):
     last_reason = ""
     for attempt in range(1, retries + 1):
         try:
-            session = create_session(cookie_str)
+            session = create_session(cookie_str, site_config)
             session.get(
                 site_config['board_url'],
                 headers={"Referer": site_config["origin"]},
@@ -463,7 +479,7 @@ def check_cookie_validity(site_config, cookie_str, retries=3):
                 last_reason = f"HTTP {response.status_code}"
                 print(f"Cookie校验第{attempt}次失败: {last_reason}")
         except Exception as e:
-            last_reason = str(e)
+            last_reason = safe_network_error(e)
             print(f"Cookie校验第{attempt}次异常: {last_reason}")
 
         if attempt < retries:
@@ -489,7 +505,7 @@ def auto_login(site_config, username, password):
             return None
 
         solver = TurnstileSolver(api_base_url=base_url, client_key=api_key)
-        session = create_session()
+        session = create_session(site_config=site_config)
 
         # 1. 访问登录页
         login_url = site_config["login_url"]
@@ -557,7 +573,7 @@ def auto_login(site_config, username, password):
         return None
 
     except Exception as e:
-        print(f"登录异常: {e}")
+        print(f"登录异常: {safe_network_error(e)}")
         return None
 
 
@@ -565,7 +581,7 @@ def sign(cookie, site_config, ns_random):
     if not cookie: return "fail", "无Cookie"
 
     try:
-        session = create_session(cookie)
+        session = create_session(cookie, site_config)
 
         # 1. 模拟浏览 (GET) - 预热
         session.get(
@@ -614,13 +630,13 @@ def sign(cookie, site_config, ns_random):
         return "fail", msg
 
     except Exception as e:
-        return "error", str(e)
+        return "error", safe_network_error(e)
 
 
 def get_stats(cookie, site_config, days=30):
     if not cookie: return None
     try:
-        session = create_session(cookie)
+        session = create_session(cookie, site_config)
 
         # 统计接口也需要预热访问
         session.get(

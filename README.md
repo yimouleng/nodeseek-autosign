@@ -352,7 +352,7 @@ python test_deepflood.py
 | `LOGIN_LOCAL_FALLBACK` | true | agent 失败后是否再用本机浏览器试一次 |
 | `LOGIN_LOCAL_HEADLESS` | false | 本地浏览器默认有头；设 true 走无头（过不了 CF） |
 | `AGENT_ENGINE` | auto | `patchright` / `camoufox` / `playwright` |
-| `AGENT_PROXY` | 空 | 给浏览器挂代理，如 `http://user:pass@host:port` |
+| `AGENT_PROXY` | 空 | NodeSeek 浏览器登录、Cookie 校验、签到和统计共用代理，如 `http://user:pass@host:port`；DeepFlood HTTP 签到不受影响 |
 | `NS_TOTP_SECRET` | 空 | 账号开了 2FA 时填 Base32 密钥 |
 | `NS_RANDOM` | true | 签到奖励方式：`true` =「试试手气」（随机 1~5 鸡腿），`false` = 固定「鸡腿 x 5」 |
 | `NS_RENEW_BEFORE_DAYS` | 5 | cookie 剩余寿命不足几天就主动换新（设 0 关闭） |

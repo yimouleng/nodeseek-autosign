@@ -2,6 +2,7 @@
 
 import contextlib
 import io
+import os
 import unittest
 from unittest.mock import patch
 
@@ -9,6 +10,28 @@ import multi_site_sign_cookie_only as sign_module
 
 
 class SignExitTests(unittest.TestCase):
+    def test_nodeseek_uses_browser_proxy_for_http_requests(self):
+        proxy = "http://user:password@example.invalid:44445"
+        with patch.dict(os.environ, {"AGENT_PROXY": proxy}):
+            ns = sign_module.create_session(
+                "session=existing", sign_module.SITES_CONFIG["nodeseek"]
+            )
+            df = sign_module.create_session(
+                "session=existing", sign_module.SITES_CONFIG["deepflood"]
+            )
+        self.assertEqual(ns.proxies, {"http": proxy, "https": proxy})
+        self.assertEqual(df.proxies, {})
+        self.assertEqual(ns.cookies.get("session"), "existing")
+
+    def test_proxy_credentials_are_removed_from_network_errors(self):
+        proxy = "http://user:password@example.invalid:44445"
+        with patch.dict(os.environ, {"AGENT_PROXY": proxy}):
+            message = sign_module.safe_network_error(
+                RuntimeError("request via " + proxy + " failed for user:password")
+            )
+        self.assertNotIn("password", message)
+        self.assertNotIn("user", message)
+
     def run_main(self, results=None, error=None):
         with patch.object(sign_module, "SITES_CONFIG", {"nodeseek": {"name": "NodeSeek"}}):
             with patch.object(sign_module, "process_site", side_effect=error) if error else \
