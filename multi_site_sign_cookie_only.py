@@ -6,6 +6,7 @@ import json
 import random
 import re
 import hashlib
+import sys
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -455,7 +456,7 @@ def check_cookie_validity(site_config, cookie_str, retries=3):
                 if "credit" in text or "balance" in text or "success" in text:
                     return True
                 last_reason = "200但响应内容不匹配"
-            elif response.status_code in (401, 403, 404, 500):
+            elif response.status_code in (401, 403):
                 print(f"Cookie校验返回 {response.status_code}，判定Cookie无效")
                 return False
             else:
@@ -888,7 +889,7 @@ def process_site(site_name, site_config, ns_random):
 
     if account_count == 0:
         print(f"未配置 {site_config.get('account_var')} / {site_config['cookie_var']}，跳过")
-        return
+        return []
 
     site_results = []
 
@@ -910,30 +911,6 @@ def process_site(site_name, site_config, ns_random):
         # DeepFlood 也是 True，但走的是 login_mode=ns_connect 那条分支
         # （复用该 NS 账号的 profile 点「NodeSeek 一键登录」）。
         allow_auto_login = site_config.get("allow_auto_login", True)
-
-        # ---- 主动续期 ----
-        # NodeSeek 的登录 cookie 约 30 天过期。等它掉了才重登，很可能撞上
-        # 「设备记忆也过期」→ 又要人工收邮箱验证码。
-        # 所以：剩余寿命不足阈值时，提前主动换新一次。
-        # 换新用的还是同一个持久化 profile，NodeSeek 记得这台设备，
-        # 所以这一步不需要邮箱验证码。
-        if cookie and meta and allow_auto_login:
-            days = cookie_days_left(meta)
-            if days is not None:
-                print(f"Cookie 剩余寿命：{days:.1f} 天")
-                if should_renew_cookie(meta, renew_threshold):
-                    print(f"Cookie 不足 {renew_threshold} 天，主动续期…")
-                    new_cookie, new_meta = recover_cookie(site_name, site_config, idx, user, pwd)
-                    if new_cookie:
-                        cookie = new_cookie
-                        meta = new_meta or meta
-                        # 主动续期同样可能撞上「设备记忆失效」，
-                        # 这里要同步状态，否则告警会漏。
-                        device_memory_expired = bool(meta.get("device_memory_expired"))
-                        email_verify_used = bool(meta.get("needs_email_verify"))
-                        print("主动续期完成")
-                    else:
-                        print("主动续期失败，继续用现有 Cookie 尝试")
 
         if cookie:
             check_result = check_cookie_validity(site_config, cookie)
@@ -1004,6 +981,16 @@ def process_site(site_name, site_config, ns_random):
             if stats:
                 print(f"统计: {stats['days']}天 | 总收益:{stats['total']} | 平均:{stats['avg']}")
 
+            # 已有登录态先完成当天签到，再尝试耗时的主动续期。
+            if meta and allow_auto_login and should_renew_cookie(meta, renew_threshold):
+                print(f"Cookie 不足 {renew_threshold} 天，主动续期…")
+                new_cookie, new_meta = recover_cookie(site_name, site_config, idx, user, pwd)
+                if new_cookie:
+                    print("主动续期完成")
+                else:
+                    device_memory_expired = bool(new_meta.get("device_memory_expired"))
+                    print("主动续期失败，今天的签到结果不受影响")
+
         site_results.append({
             'user': user,
             'status': status,
@@ -1060,10 +1047,27 @@ def process_site(site_name, site_config, ns_random):
     else:
         print("今日已通知过，跳过推送")
 
+    return site_results
 
-if __name__ == "__main__":
+
+def main():
     print("脚本启动...")
     ns_random = os.getenv("NS_RANDOM", "true")
+    failed = False
+    configured = False
     for name, config in SITES_CONFIG.items():
-        try: process_site(name, config, ns_random)
-        except Exception as e: print(f"站点异常: {e}")
+        try:
+            results = process_site(name, config, ns_random)
+            configured = configured or bool(results)
+            if any(r.get("status") not in ("success", "already") for r in results):
+                failed = True
+        except Exception as e:
+            print(f"站点异常: {e}")
+            failed = True
+    if not configured:
+        print("没有任何站点完成签到检查")
+    return 1 if failed or not configured else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
