@@ -32,6 +32,14 @@ class SignExitTests(unittest.TestCase):
         self.assertNotIn("password", message)
         self.assertNotIn("user", message)
 
+    def test_proxy_network_error_does_not_trigger_login(self):
+        self.assertFalse(sign_module.sign_failure_should_recover(
+            "error", "Proxy CONNECT failed"
+        ))
+        self.assertTrue(sign_module.sign_failure_should_recover(
+            "invalid", "Cookie expired"
+        ))
+
     def run_main(self, results=None, error=None):
         with patch.object(sign_module, "SITES_CONFIG", {"nodeseek": {"name": "NodeSeek"}}):
             with patch.object(sign_module, "process_site", side_effect=error) if error else \

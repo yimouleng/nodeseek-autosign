@@ -869,8 +869,10 @@ def recover_cookie(site_name, site_config, account_index, user, pwd):
 def sign_failure_should_recover(status, msg):
     """签到结果明确说明当前Cookie不可用时，触发登录恢复并重试一次。WAF不代表Cookie失效。"""
     text = (msg or "").lower()
-    if status in ["invalid", "error"]:
+    if status == "invalid":
         return True
+    if status == "error":
+        return False
     return any(s in text for s in [
         "user not found",
         "unauthorized",
