@@ -1,6 +1,8 @@
 """IMAP polling must leave unrelated unread messages untouched."""
 
 from email.message import EmailMessage
+from email.utils import format_datetime
+from datetime import datetime, timedelta, timezone
 import os
 import unittest
 from unittest.mock import patch
@@ -8,9 +10,10 @@ from unittest.mock import patch
 from agent import login_core
 
 
-def make_message(sender, code):
+def make_message(sender, code, age=timedelta()):
     message = EmailMessage()
     message["From"] = sender
+    message["Date"] = format_datetime(datetime.now(timezone.utc) - age)
     message["Subject"] = "Verification"
     message.set_content("Your verification code: " + code)
     return message.as_bytes()
@@ -32,12 +35,13 @@ class ImapCodeTests(unittest.TestCase):
                 return "OK", []
 
             def search(self, *args):
-                return "OK", [b"1 2"]
+                return "OK", [b"1 2 3"]
 
             def fetch(self, message_id, part):
                 self.fetches.append((message_id, part))
                 sender = "other@example.com" if message_id == b"2" else "notice@nodeseek.com"
-                return "OK", [(b"", make_message(sender, code))]
+                age = timedelta(days=1) if message_id == b"3" else timedelta()
+                return "OK", [(b"", make_message(sender, code, age))]
 
             def store(self, *args):
                 self.stores.append(args)
@@ -58,7 +62,8 @@ class ImapCodeTests(unittest.TestCase):
             self.assertEqual(login_core._poll_code_imap(5), code)
 
         self.assertEqual(mailbox.fetches, [
-            (b"2", "(BODY.PEEK[])"), (b"1", "(BODY.PEEK[])"),
+            (b"3", "(BODY.PEEK[])"), (b"2", "(BODY.PEEK[])"),
+            (b"1", "(BODY.PEEK[])"),
         ])
         self.assertEqual(mailbox.stores, [(b"1", "+FLAGS", "\\Seen")])
 

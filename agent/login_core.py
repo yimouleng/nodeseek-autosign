@@ -923,6 +923,7 @@ def _poll_code_imap(timeout: int) -> str:
         import imaplib
         import email as _email
         from email.header import decode_header
+        from email.utils import parsedate_to_datetime
     except Exception:
         return ""
 
@@ -933,6 +934,7 @@ def _poll_code_imap(timeout: int) -> str:
     folder = os.getenv("NS_IMAP_FOLDER", "INBOX").strip() or "INBOX"
     sender_kw = os.getenv("NS_IMAP_SENDER", "nodeseek").strip().lower()
 
+    earliest_message = time.time() - 300
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
@@ -949,6 +951,12 @@ def _poll_code_imap(timeout: int) -> str:
                         if typ != "OK":
                             continue
                         msg = _email.message_from_bytes(msg_data[0][1])
+                        try:
+                            sent_at = parsedate_to_datetime(msg.get("Date", "")).timestamp()
+                        except (TypeError, ValueError, OverflowError):
+                            continue
+                        if sent_at < earliest_message:
+                            continue
                         subj = ""
                         for part in msg.walk():
                             if part.get_content_type() == "text/html":
