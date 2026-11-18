@@ -40,6 +40,29 @@ class SignExitTests(unittest.TestCase):
             "invalid", "Cookie expired"
         ))
 
+    def test_nodeseek_uses_fallback_only_for_network_or_waf_failure(self):
+        site = sign_module.SITES_CONFIG["nodeseek"]
+        cases = [
+            (("error", "ConnectionError"), 2),
+            (("fail", "被WAF拦截"), 2),
+            (("fail", "未知响应 (Code 403)"), 2),
+            (("already", "今天已完成签到"), 1),
+            (("invalid", "Cookie expired"), 1),
+        ]
+        for first, calls in cases:
+            with self.subTest(first=first), patch.dict(os.environ, {"NS_HTTP_FALLBACK_PROXY": "http://127.0.0.1:7893"}), \
+                    patch.object(sign_module, "_sign_once", side_effect=[first, ("already", "已签到")]) as once:
+                sign_module.sign("session=existing", site, "true")
+                self.assertEqual(once.call_count, calls)
+                if calls == 2:
+                    self.assertEqual(once.call_args.kwargs["proxy_override"], "http://127.0.0.1:7893")
+
+    def test_deepflood_does_not_use_nodeseek_fallback(self):
+        with patch.dict(os.environ, {"NS_HTTP_FALLBACK_PROXY": "http://127.0.0.1:7893"}), \
+                patch.object(sign_module, "_sign_once", return_value=("error", "network")) as once:
+            sign_module.sign("session=existing", sign_module.SITES_CONFIG["deepflood"], "true")
+        once.assert_called_once()
+
     def run_main(self, results=None, error=None):
         with patch.object(sign_module, "SITES_CONFIG", {"nodeseek": {"name": "NodeSeek"}}):
             with patch.object(sign_module, "process_site", side_effect=error) if error else \

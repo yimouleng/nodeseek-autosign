@@ -439,8 +439,10 @@ def get_accounts(site_config):
 # === 核心业务逻辑 ===
 def safe_network_error(error):
     message = str(error)
-    proxy = os.getenv("AGENT_PROXY", "").strip()
-    if proxy:
+    for proxy in (os.getenv("AGENT_PROXY", "").strip(),
+                  os.getenv("NS_HTTP_FALLBACK_PROXY", "").strip()):
+        if not proxy:
+            continue
         parsed = urlsplit(proxy)
         for secret in (proxy, parsed.username, parsed.password):
             if secret:
@@ -619,11 +621,13 @@ def auto_login(site_config, username, password):
         return None
 
 
-def sign(cookie, site_config, ns_random):
+def _sign_once(cookie, site_config, ns_random, proxy_override=None):
     if not cookie: return "fail", "无Cookie"
 
     try:
         session = create_session(cookie, site_config)
+        if proxy_override:
+            session.proxies.update({"http": proxy_override, "https": proxy_override})
 
         # 1. 模拟浏览 (GET) - 预热
         session.get(
@@ -673,6 +677,21 @@ def sign(cookie, site_config, ns_random):
 
     except Exception as e:
         return "error", safe_network_error(e)
+
+
+def sign(cookie, site_config, ns_random):
+    status, message = _sign_once(cookie, site_config, ns_random)
+    fallback = os.getenv("NS_HTTP_FALLBACK_PROXY", "").strip()
+    retryable = status == "error" or (
+        status == "fail" and (
+            message == "被WAF拦截"
+            or message.startswith(("未知响应 (Code 403)", "未知响应 (Code 429)", "未知响应 (Code 5"))
+        )
+    )
+    if site_config.get("type") == "nodeseek" and fallback and retryable:
+        print("NodeSeek 主出口遇到网络或风控错误，改用备用代理重试一次")
+        return _sign_once(cookie, site_config, ns_random, proxy_override=fallback)
+    return status, message
 
 
 def get_stats(cookie, site_config, days=30):

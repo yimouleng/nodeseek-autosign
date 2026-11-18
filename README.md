@@ -358,6 +358,7 @@ python test_deepflood.py
 | `LOGIN_LOCAL_HEADLESS` | false | 本地浏览器默认有头；设 true 走无头（过不了 CF） |
 | `AGENT_ENGINE` | auto | `patchright` / `camoufox` / `playwright` |
 | `AGENT_PROXY` | 空 | NodeSeek 默认浏览器登录、Cookie 校验、签到和统计共用代理，如 `http://user:pass@host:port`；独立 Chromium 登录改用 `LOGIN_PROXY`，DeepFlood HTTP 签到不受影响 |
+| `NS_HTTP_FALLBACK_PROXY` | 空 | NodeSeek 签到遇网络或风控错误时，用此代理重试一次；可设为本机 Mihomo，避免依赖静态 ISP |
 | `LOGIN_PROXY` | 空 | 可选独立 Chromium 登录续期代理；启用后日常签到仍走 `AGENT_PROXY` |
 | `NS_SIGNER_PYTHON` / `NS_SIGNER_PACKAGE` | 空 | 可选独立 ns-signer 的 Python 和源码路径；两者都需配置 |
 | `NS_SIGNER_DATA_DIR` / `NS_SIGNER_BROWSERS_PATH` | 空 | 独立登录会话和浏览器目录 |
