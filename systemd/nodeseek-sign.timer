@@ -1,8 +1,10 @@
 [Unit]
-Description=NodeSeek sign-in at 02:30 Beijing time, catching up after downtime
+Description=NodeSeek sign-in between 02:30 and 03:30 Beijing time, catching up after downtime
 
 [Timer]
 OnCalendar=*-*-* 02:30:00 Asia/Shanghai
+RandomizedDelaySec=1h
+AccuracySec=1s
 Persistent=true
 Unit=nodeseek-sign.service
 

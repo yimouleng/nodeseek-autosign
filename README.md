@@ -135,9 +135,9 @@ cd /root/nodeseek-autosign
 bash install_cron.sh
 ```
 
-如果安装在 `/opt/nodeseek-autosign` 的 systemd VPS，且需要停机错过 2:30 后开机补跑，
-可改用 `bash install_systemd_timer.sh`。它按北京时间每天 2:30 运行，启用
-`Persistent=true`，并在启用定时器后备份 crontab、移除本项目的旧签到条目。
+如果安装在 `/opt/nodeseek-autosign` 的 systemd VPS，可改用 `bash install_systemd_timer.sh`。
+它按北京时间每天 2:30–3:30 随机触发，启用
+`Persistent=true` 以便停机后补跑，并在启用定时器后备份 crontab、移除本项目的旧签到条目。
 查看状态：`systemctl list-timers nodeseek-sign.timer` 和
 `systemctl status nodeseek-sign.service`。不要同时安装 cron 签到条目。
 
